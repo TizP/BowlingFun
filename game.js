@@ -1,3 +1,5 @@
+// --- START OF FILE game.js ---
+
 // Get the canvas element
 const canvas = document.getElementById("renderCanvas");
 
@@ -31,6 +33,12 @@ const ARROW_MAX_ANGLE = Math.PI / 6; // Max swing angle (30 degrees each way)
 const ARROW_LENGTH_MIN = 1.5;
 const ARROW_LENGTH_MAX = 4.0;
 
+// --- Texture Properties ---
+const BALL_TEXTURE_U_SCALE = 4; // Horizontal tiling
+const BALL_TEXTURE_V_SCALE = 4; // Vertical tiling
+// <<<=== ADDED: Define texture rotation angle (180 degrees = PI radians)
+const BALL_TEXTURE_W_ANGLE = Math.PI;
+
 // --- Calculated Positions ---
 const LANE_TOP_Y = LANE_POS_Y + (LANE_HEIGHT / 2);
 const PIN_BASE_OFFSET_Y = PIN_HEIGHT / 2;
@@ -63,6 +71,14 @@ let chargeStartTime = 0;
 let launchPower = MIN_LAUNCH_FORCE;
 let lastFrameTime = 0; // For delta time calculation
 
+// --- Texture Paths ---
+const ballTexturePaths = [
+    "resources/textures/herta.jpg",
+    "resources/textures/mutsuki.jpg",
+    "resources/textures/paimon.jpg",
+    "resources/textures/robin.jpg"
+];
+
 // Define pin starting positions using calculated Y
 const pinPositions = [
      // Row 4 (back)
@@ -80,18 +96,52 @@ const BALL_START_POS = new BABYLON.Vector3(0, BALL_START_Y, -5);
 // --- Helper Functions ---
 
 function createMaterials(scene) {
+    // Lane Material
     const woodMaterial = new BABYLON.StandardMaterial("woodMat", scene);
     woodMaterial.diffuseColor = new BABYLON.Color3(0.7, 0.5, 0.3);
 
+    // Pin Material
     const pinMaterial = new BABYLON.StandardMaterial("pinMat", scene);
     pinMaterial.diffuseColor = new BABYLON.Color3(0.95, 0.95, 1);
     pinMaterial.specularColor = new BABYLON.Color3(0.2, 0.2, 0.2);
 
+    // Ball Material (Initial Setup)
     const ballMaterial = new BABYLON.StandardMaterial("ballMat", scene);
-    ballMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.6);
     ballMaterial.specularColor = new BABYLON.Color3(0.5, 0.5, 0.5);
     ballMaterial.specularPower = 32;
 
+    // Load the *first* texture as the initial default
+    if (ballTexturePaths.length > 0) {
+        const defaultBallTexturePath = ballTexturePaths[0];
+        try {
+            const ballTexture = new BABYLON.Texture(defaultBallTexturePath, scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+                () => { // onLoad success
+                    // Apply Tiling
+                    ballTexture.uScale = BALL_TEXTURE_U_SCALE;
+                    ballTexture.vScale = BALL_TEXTURE_V_SCALE;
+                    // <<<=== MODIFIED: Apply Rotation
+                    ballTexture.wAng = BALL_TEXTURE_W_ANGLE; // Rotate texture
+
+                    ballMaterial.diffuseTexture = ballTexture;
+                    ballMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // White base for texture
+                    console.log("Initial ball texture loaded, tiled, and rotated:", defaultBallTexturePath);
+                },
+                (message, exception) => { // onError
+                    console.error("Failed to load initial ball texture:", defaultBallTexturePath, message, exception);
+                    ballMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.6); // Fallback color
+                    console.warn("Falling back to solid color for bowling ball initially.");
+                }
+            );
+        } catch (e) {
+            console.error("Error initiating initial texture load:", defaultBallTexturePath, e);
+            ballMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.6); // Fallback color
+        }
+    } else {
+        console.warn("ballTexturePaths array is empty. Using solid color for ball.");
+        ballMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.6); // Fallback color
+    }
+
+    // Arrow Material
     const arrowMaterial = new BABYLON.StandardMaterial("arrowMat", scene);
     arrowMaterial.diffuseColor = BABYLON.Color3.Green(); // Start green
     arrowMaterial.emissiveColor = new BABYLON.Color3(0, 0.4, 0); // Give it some glow
@@ -104,7 +154,7 @@ function createGUI(scene) {
     const advancedTexture = BABYLON.GUI.AdvancedDynamicTexture.CreateFullscreenUI("UI");
 
     // --- Score Text (Top Left) ---
-    scoreText = new BABYLON.GUI.TextBlock("scoreText", "Score: 0"); // Give it a name/ID
+    scoreText = new BABYLON.GUI.TextBlock("scoreText", "Score: 0");
     scoreText.color = "white";
     scoreText.fontSize = 24;
     scoreText.outlineWidth = 2;
@@ -116,19 +166,18 @@ function createGUI(scene) {
     advancedTexture.addControl(scoreText);
 
     // --- Controls Text (Top Right) ---
-    const controlsString = "Right Mouse: Rotate/Pan\nMouse Wheel: Zoom\nSpacebar: Aim/Charge/Throw\nR: Reset Game"; // Use \n for new lines
-
-    const controlsText = new BABYLON.GUI.TextBlock("controlsText", controlsString); // Give it a name/ID
+    const controlsString = "Right Mouse: Rotate/Pan\nMouse Wheel: Zoom\nSpacebar: Aim/Charge/Throw\nR: Reset Game";
+    const controlsText = new BABYLON.GUI.TextBlock("controlsText", controlsString);
     controlsText.color = "white";
     controlsText.fontSize = 16;
     controlsText.outlineWidth = 2;
     controlsText.outlineColor = "black";
-    controlsText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT; // Align Right
-    controlsText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;     // Align Top
+    controlsText.textHorizontalAlignment = BABYLON.GUI.Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    controlsText.textVerticalAlignment = BABYLON.GUI.Control.VERTICAL_ALIGNMENT_TOP;
     controlsText.textWrapping = true;
     controlsText.paddingTop = "10px";
-    controlsText.paddingRight = "10px"; // Use paddingRight for right alignment
-    advancedTexture.addControl(controlsText); // Add this new text block
+    controlsText.paddingRight = "10px";
+    advancedTexture.addControl(controlsText);
 }
 
 function updateScoreDisplay() {
@@ -138,12 +187,10 @@ function updateScoreDisplay() {
 }
 
 function createDirectionArrow(scene, materials) {
-    // Create arrow shape (thin cylinder + cone tip)
-    const body = BABYLON.MeshBuilder.CreateCylinder("arrowBody", { height: 1, diameter: 0.08 }, scene); // Height will be scaled
+    const body = BABYLON.MeshBuilder.CreateCylinder("arrowBody", { height: 1, diameter: 0.08 }, scene);
     const head = BABYLON.MeshBuilder.CreateCylinder("arrowHead", { height: 0.2, diameterTop: 0, diameterBottom: 0.2 }, scene);
-    head.position.y = 0.5 + 0.1; // Position tip at the end of the body's initial height
+    head.position.y = 0.5 + 0.1;
 
-    // Merge into a single mesh for easier handling
     const arrowMesh = BABYLON.Mesh.MergeMeshes([body, head], true, true, undefined, false, true);
     if (!arrowMesh) {
         console.error("Failed to merge arrow meshes");
@@ -151,83 +198,57 @@ function createDirectionArrow(scene, materials) {
     }
     arrowMesh.name = "directionArrow";
     arrowMesh.material = materials.arrowMaterial;
-    arrowMesh.rotation.x = Math.PI / 2; // Rotate to point forward (along Z)
-    arrowMesh.scaling.y = ARROW_LENGTH_MIN; // Initial length corresponds to scaling Y because of the rotation
-
-    // Set pivot point for rotation at the base of the arrow (relative to its local coords)
-    arrowMesh.setPivotPoint(new BABYLON.Vector3(0, -0.5, 0)); // Pivot at the bottom center
-
-    // Position arrow relative to ball start
+    arrowMesh.rotation.x = Math.PI / 2;
+    arrowMesh.scaling.y = ARROW_LENGTH_MIN;
+    arrowMesh.setPivotPoint(new BABYLON.Vector3(0, -0.5, 0));
     arrowMesh.position = BALL_START_POS.clone();
-    arrowMesh.position.z += BALL_RADIUS + 0.2; // Place slightly in front of the ball
-    arrowMesh.position.y += 0.1; // Slightly above the lane
-
-    arrowMesh.isVisible = false; // Start hidden, show only when aiming
+    arrowMesh.position.z += BALL_RADIUS + 0.2;
+    arrowMesh.position.y += 0.1;
+    arrowMesh.isVisible = false;
     return arrowMesh;
 }
 
 function updateArrowAiming(arrow, time) {
-    // Oscillate angle between -ARROW_MAX_ANGLE and +ARROW_MAX_ANGLE
     currentAimAngle = Math.sin(time * ARROW_OSCILLATION_SPEED) * ARROW_MAX_ANGLE;
-    // Rotate around its local Z axis (which points up/down in world space after the initial X rotation)
     arrow.rotation.z = currentAimAngle;
 }
 
 function updateArrowCharging(arrow, chargedTime) {
-    const chargeRatio = Math.min(chargedTime / MAX_CHARGE_TIME, 1.0); // Clamp between 0 and 1
+    const chargeRatio = Math.min(chargedTime / MAX_CHARGE_TIME, 1.0);
     launchPower = MIN_LAUNCH_FORCE + (MAX_LAUNCH_FORCE - MIN_LAUNCH_FORCE) * chargeRatio;
-
-    // Update arrow length (scaling)
     arrow.scaling.y = ARROW_LENGTH_MIN + (ARROW_LENGTH_MAX - ARROW_LENGTH_MIN) * chargeRatio;
-
-    // Update arrow color (Green -> Yellow -> Red)
     const color = BABYLON.Color3.Lerp(BABYLON.Color3.Green(), BABYLON.Color3.Red(), chargeRatio);
-    if (arrow.material instanceof BABYLON.StandardMaterial) { // Type check for safety
+    if (arrow.material instanceof BABYLON.StandardMaterial) {
         arrow.material.diffuseColor = color;
-        arrow.material.emissiveColor = color.scale(0.4); // Maintain some glow
+        arrow.material.emissiveColor = color.scale(0.4);
     }
 }
 
 function checkFallenPins() {
     let pinsDownThisCheck = 0;
     pins.forEach((pin, index) => {
-        // Check if pin exists, has physics, and hasn't been counted yet in this throw
         if (pin && pin.physicsImpostor && !fallenPinIndicesThisThrow.has(index)) {
-            // Get the pin's local up vector (Y-axis) in world space
-            // Using rotationQuaternion is more reliable if available
             const localUp = pin.rotationQuaternion ?
                             BABYLON.Vector3.TransformNormal(BABYLON.Axis.Y, pin.computeWorldMatrix(true)) :
                             pin.getDirection(BABYLON.Axis.Y);
-
-            // Calculate the dot product with the world up vector
             const dotProduct = BABYLON.Vector3.Dot(localUp.normalize(), BABYLON.Axis.Y);
-
-            // If the dot product is below the threshold, the pin is significantly tilted
             if (dotProduct < PIN_FALLEN_THRESHOLD) {
                 score++;
                 pinsDownThisCheck++;
-                fallenPinIndicesThisThrow.add(index); // Mark as fallen for this throw
-                // Optional: Change pin color or hide it
-                // if (pin.material instanceof BABYLON.StandardMaterial) {
-                //    pin.material.emissiveColor = BABYLON.Color3.Red();
-                // }
+                fallenPinIndicesThisThrow.add(index);
             }
         }
     });
-
     if (pinsDownThisCheck > 0) {
         updateScoreDisplay();
     }
 }
 
 function isBallStopped() {
-    if (!bowlingBall || !bowlingBall.physicsImpostor) return true; // No ball or physics
-
+    if (!bowlingBall || !bowlingBall.physicsImpostor) return true;
     const linVel = bowlingBall.physicsImpostor.getLinearVelocity();
     const angVel = bowlingBall.physicsImpostor.getAngularVelocity();
-    const threshold = 0.1; // Velocity threshold to consider stopped
-
-    // Check if velocities are defined and below threshold
+    const threshold = 0.1;
     return linVel && angVel &&
            linVel.lengthSquared() < threshold &&
            angVel.lengthSquared() < threshold;
@@ -235,22 +256,17 @@ function isBallStopped() {
 
 function resetForNextThrow() {
     console.log("Resetting for next throw...");
-    currentGameState = GameState.RESETTING; // Briefly indicate resetting state
+    currentGameState = GameState.RESETTING;
 
-    // Reset ball physics and position
     if (bowlingBall && bowlingBall.physicsImpostor) {
         bowlingBall.physicsImpostor.setLinearVelocity(BABYLON.Vector3.Zero());
         bowlingBall.physicsImpostor.setAngularVelocity(BABYLON.Vector3.Zero());
-        // Force sleep state might help stability in some physics engines
-        // bowlingBall.physicsImpostor.sleep();
     }
     if (bowlingBall) {
         bowlingBall.position = BALL_START_POS.clone();
-        // Force update of transforms after manual position change
         bowlingBall.computeWorldMatrix(true);
     }
 
-    // Reset arrow state
     if (directionArrow) {
         directionArrow.rotation.z = 0;
         directionArrow.scaling.y = ARROW_LENGTH_MIN;
@@ -259,70 +275,102 @@ function resetForNextThrow() {
              directionArrow.material.emissiveColor = BABYLON.Color3.Green().scale(0.4);
         }
         directionArrow.isVisible = true;
-        directionArrow.position = BALL_START_POS.clone(); // Ensure it's back at start
+        directionArrow.position = BALL_START_POS.clone();
         directionArrow.position.z += BALL_RADIUS + 0.2;
         directionArrow.position.y += 0.1;
     }
 
-    // Reset aiming/charging state
-    fallenPinIndicesThisThrow.clear(); // Clear fallen pins for the new throw
+    fallenPinIndicesThisThrow.clear();
     launchPower = MIN_LAUNCH_FORCE;
     currentAimAngle = 0;
 
-     // Optional: Make remaining pins non-emissive if they were marked
-    pins.forEach((pin, index) => {
-        if (pin && pin.material instanceof BABYLON.StandardMaterial && !fallenPinIndicesThisThrow.has(index)) {
-           // pin.material.emissiveColor = BABYLON.Color3.Black(); // Reset color if changed
-        }
-    });
-
-    // Allow slight delay before switching back to aiming, helps physics settle
     setTimeout(() => {
-         if (currentGameState === GameState.RESETTING) { // Only switch if still in resetting state
+         if (currentGameState === GameState.RESETTING) {
              currentGameState = GameState.AIMING;
          }
-    }, 100); // 100ms delay
-
+    }, 100);
 }
 
 function resetGame(scene) {
     console.log("Resetting game...");
-    currentGameState = GameState.RESETTING; // Indicate resetting
+    currentGameState = GameState.RESETTING;
 
     // --- Dispose existing physics and meshes ---
-    // Order matters: Dispose impostors first!
-    if (bowlingBall && bowlingBall.physicsImpostor) {
-        bowlingBall.physicsImpostor.dispose();
-    }
-    if (bowlingBall) {
-        bowlingBall.dispose();
-    }
-    bowlingBall = null; // Clear reference
+    if (bowlingBall && bowlingBall.physicsImpostor) bowlingBall.physicsImpostor.dispose();
+    if (bowlingBall) bowlingBall.dispose();
+    bowlingBall = null;
 
     pins.forEach(pin => {
-        if (pin && pin.physicsImpostor) {
-            pin.physicsImpostor.dispose();
-        }
-        if (pin) {
-            pin.dispose();
-        }
+        if (pin && pin.physicsImpostor) pin.physicsImpostor.dispose();
+        if (pin) pin.dispose();
     });
-    pins = []; // Clear the array
+    pins = [];
 
     if (directionArrow) {
-        // Arrow doesn't have physics impostor, just dispose mesh
         directionArrow.dispose();
-        directionArrow = null; // Clear reference
+        directionArrow = null;
     }
 
-    // --- Recreate elements ---
-    // Get existing materials by name (safer than assuming they exist globally)
-    const materials = {
+    // --- Get Materials ---
+    let materials = {
         woodMaterial: scene.getMaterialByName("woodMat"),
         pinMaterial: scene.getMaterialByName("pinMat"),
         ballMaterial: scene.getMaterialByName("ballMat"),
         arrowMaterial: scene.getMaterialByName("arrowMat")
     };
+    if (!materials.ballMaterial) {
+        console.error("Ball material ('ballMat') not found during reset! Recreating materials.");
+        materials = createMaterials(scene);
+    }
+    if (!materials.woodMaterial || !materials.pinMaterial || !materials.arrowMaterial) {
+        console.warn("Some non-ball materials missing during reset.");
+    }
+
+
+    // <<<=== RANDOMIZE, TILE & ROTATE BALL TEXTURE ===>>>
+    const ballMaterial = materials.ballMaterial;
+    if (ballMaterial instanceof BABYLON.StandardMaterial && ballTexturePaths.length > 0) {
+        const randomIndex = Math.floor(Math.random() * ballTexturePaths.length);
+        const randomTexturePath = ballTexturePaths[randomIndex];
+        console.log(`Applying random ball texture: ${randomTexturePath}`);
+
+        try {
+            if (ballMaterial.diffuseTexture && ballMaterial.diffuseTexture.dispose) {
+                console.log("Disposing old ball texture:", ballMaterial.diffuseTexture.name);
+                ballMaterial.diffuseTexture.dispose();
+                ballMaterial.diffuseTexture = null;
+            }
+
+            const newTexture = new BABYLON.Texture(randomTexturePath, scene, false, true, BABYLON.Texture.TRILINEAR_SAMPLINGMODE,
+                () => { // Success callback
+                    // Apply Tiling
+                    newTexture.uScale = BALL_TEXTURE_U_SCALE;
+                    newTexture.vScale = BALL_TEXTURE_V_SCALE;
+                    // <<<=== MODIFIED: Apply Rotation
+                    newTexture.wAng = BALL_TEXTURE_W_ANGLE; // Rotate texture
+
+                    ballMaterial.diffuseTexture = newTexture;
+                    ballMaterial.diffuseColor = new BABYLON.Color3(1, 1, 1); // Ensure no tint
+                    console.log("Successfully applied, tiled, and rotated random texture:", randomTexturePath);
+                },
+                (message, exception) => { // Error callback
+                    console.error("Failed to load random texture:", randomTexturePath, message, exception);
+                    ballMaterial.diffuseTexture = null;
+                    ballMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.6);
+                }
+            );
+        } catch (e) {
+            console.error("Error initiating random texture load for:", randomTexturePath, e);
+            ballMaterial.diffuseTexture = null;
+            ballMaterial.diffuseColor = new BABYLON.Color3(0.1, 0.1, 0.6); // Fallback
+        }
+    } else if (!ballMaterial) {
+         console.error("Ball material ('ballMat') is unexpectedly missing!");
+    } else if (ballTexturePaths.length === 0) {
+         console.warn("ballTexturePaths array is empty, cannot randomize texture.");
+    }
+    // <<<=== END RANDOMIZE, TILE & ROTATE BALL TEXTURE ===>>>
+
 
     // Recreate Pins
     pinPositions.forEach((pos, index) => {
@@ -331,28 +379,24 @@ function resetGame(scene) {
         }, scene);
         pin.position = pos.clone();
         pin.material = materials.pinMaterial;
-        // Optional: Ensure emissive is off on reset
-        // if (pin.material instanceof BABYLON.StandardMaterial) {
-        //     pin.material.emissiveColor = BABYLON.Color3.Black();
-        // }
         pin.physicsImpostor = new BABYLON.PhysicsImpostor(pin, BABYLON.PhysicsImpostor.CylinderImpostor, {
             mass: PIN_MASS, restitution: PIN_RESTITUTION, friction: PIN_FRICTION
         }, scene);
-        pins.push(pin); // Add new pin to the array
+        pins.push(pin);
     });
 
-    // Recreate Ball
+    // Recreate Ball (will use the updated ballMaterial)
     bowlingBall = BABYLON.MeshBuilder.CreateSphere("bowlingBall", {
         diameter: BALL_DIAMETER, segments: 32
     }, scene);
     bowlingBall.position = BALL_START_POS.clone();
-    bowlingBall.material = materials.ballMaterial;
+    bowlingBall.material = ballMaterial; // Assign the material (texture was updated above)
     bowlingBall.physicsImpostor = new BABYLON.PhysicsImpostor(bowlingBall, BABYLON.PhysicsImpostor.SphereImpostor, {
         mass: BALL_MASS, restitution: BALL_RESTITUTION, friction: BALL_FRICTION
     }, scene);
 
     // Recreate Arrow
-    directionArrow = createDirectionArrow(scene, materials); // Use the creation function
+    directionArrow = createDirectionArrow(scene, materials);
 
     // Reset Score and State
     score = 0;
@@ -370,23 +414,17 @@ const createScene = function () {
 
     // --- Physics ---
     const gravityVector = new BABYLON.Vector3(0, -9.81, 0);
-    // Use the legacy CannonJSPlugin constructor signature for older Babylon versions if needed
-    // const physicsPlugin = new BABYLON.CannonJSPlugin(true, 10, cannon); // requires global cannon object
-    const physicsPlugin = new BABYLON.CannonJSPlugin(); // Simpler constructor for recent versions
+    const physicsPlugin = new BABYLON.CannonJSPlugin();
     scene.enablePhysics(gravityVector, physicsPlugin);
-    // Optional: Increase physics substeps for stability, especially with fast objects
-    // scene.getPhysicsEngine().setTimeStep(1 / 120); // Default is 1/60
-
 
     // --- Camera ---
     const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 3.5, 40, new BABYLON.Vector3(0, 5, 0), scene);
-    // Default ArcRotateCamera Controls: Left=Rotate, Right/Ctrl+Left=Pan, Wheel=Zoom
-    camera.attachControl(canvas, true); // true = prevent default browser actions on canvas
+    camera.attachControl(canvas, true);
     camera.lowerRadiusLimit = 15;
     camera.upperRadiusLimit = 60;
-    camera.wheelPrecision = 50; // Controls zoom sensitivity
-    camera.panningSensibility = 1000; // Controls panning sensitivity (lower = faster)
-    camera.target = new BABYLON.Vector3(0, 0, 10); // Initial camera focus
+    camera.wheelPrecision = 50;
+    camera.panningSensibility = 1000;
+    camera.target = new BABYLON.Vector3(0, 0, 10);
 
     // --- Light ---
     const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
@@ -395,11 +433,11 @@ const createScene = function () {
     light2.intensity = 0.5;
 
     // --- Materials ---
-    // Create materials once, they will be reused in resetGame by name
+    // createMaterials now sets up the initial ball texture, tiling, and rotation.
     createMaterials(scene);
 
     // --- GUI ---
-    createGUI(scene); // Creates score and controls text
+    createGUI(scene);
 
     // --- Ground (Lane) ---
     const lane = BABYLON.MeshBuilder.CreateBox("lane", { width: LANE_WIDTH, height: LANE_HEIGHT, depth: LANE_DEPTH }, scene);
@@ -408,37 +446,39 @@ const createScene = function () {
     lane.physicsImpostor = new BABYLON.PhysicsImpostor(lane, BABYLON.PhysicsImpostor.BoxImpostor, { mass: 0, restitution: 0.4, friction: 0.5 }, scene);
 
     // --- Initial Setup ---
-    // resetGame now handles creating the initial ball, pins, and arrow
-    resetGame(scene);
+    resetGame(scene); // Applies initial random texture, tiling & rotation
 
     // --- Scene Ready Actions ---
      scene.onReadyObservable.addOnce(() => {
         console.log("Scene is ready!");
-        // Start the game loop timing and ensure correct initial state
-         lastFrameTime = performance.now();
-         // resetGame should leave the state as AIMING after its internal setTimeout
-         // currentGameState = GameState.AIMING; // Explicitly set if needed
-         if (directionArrow) directionArrow.isVisible = true; // Ensure arrow visible at start
+        lastFrameTime = performance.now();
+        if (!scene.metadata) {
+            scene.metadata = {}; // Ensure metadata object exists
+        }
+         if (currentGameState !== GameState.AIMING && currentGameState !== GameState.RESETTING) {
+             console.warn("Unexpected game state after scene ready, forcing AIMING.");
+             currentGameState = GameState.AIMING;
+         }
+         if (directionArrow) directionArrow.isVisible = (currentGameState === GameState.AIMING);
     });
 
     return scene;
 };
 
 // --- Create and Render ---
-let currentScene = createScene(); // Initialize the scene
+let currentScene = createScene();
 
-// Render loop - Use engine's deltaTime for smoother physics/animations
+// Render loop
 engine.runRenderLoop(function () {
     if (!currentScene) return;
 
-    const deltaTime = engine.getDeltaTime() / 1000.0; // Delta time in seconds
     const now = performance.now();
-    const timeSeconds = now / 1000.0; // Absolute time in seconds for oscillation
+    const timeSeconds = now / 1000.0;
 
     switch (currentGameState) {
         case GameState.AIMING:
             if (directionArrow) {
-                directionArrow.isVisible = true; // Ensure visible
+                directionArrow.isVisible = true;
                 updateArrowAiming(directionArrow, timeSeconds);
             }
             break;
@@ -451,36 +491,31 @@ engine.runRenderLoop(function () {
             break;
 
         case GameState.BALL_ROLLING:
-            if (directionArrow) directionArrow.isVisible = false; // Hide arrow
-            checkFallenPins(); // Check score while rolling
+            if (directionArrow) directionArrow.isVisible = false;
+            checkFallenPins();
 
-            // Check if ball has stopped after physics has simulated for a frame
             if (isBallStopped()) {
-                 // Add a small delay before resetting to let physics fully settle
-                 // and prevent immediate re-launch issues
-                 if (!currentScene.metadata?.resetTimer) { // Prevent setting multiple timers
-                     currentScene.metadata = currentScene.metadata || {}; // Ensure metadata exists
+                 if (!currentScene.metadata?.resetTimer) {
                      currentScene.metadata.resetTimer = setTimeout(() => {
-                         console.log("Ball stopped, initiating reset.");
+                         console.log("Ball stopped, initiating reset for next throw.");
                          resetForNextThrow();
-                         currentScene.metadata.resetTimer = null; // Clear the timer handle
-                     }, 500); // 0.5 second delay after stopping
+                         if(currentScene.metadata) currentScene.metadata.resetTimer = null;
+                     }, 500);
                  }
             } else {
-                 // If ball starts moving again, cancel any pending reset timer
                  if (currentScene.metadata?.resetTimer) {
                     clearTimeout(currentScene.metadata.resetTimer);
-                    currentScene.metadata.resetTimer = null;
+                     if(currentScene.metadata) currentScene.metadata.resetTimer = null;
                  }
             }
             break;
 
          case GameState.RESETTING:
-             // Game is paused during reset or waiting for timeout
+             // Waiting for reset timeout or full reset operation
              break;
     }
 
-    currentScene.render(deltaTime); // Pass deltaTime to render function if needed by scene components
+    currentScene.render();
 });
 
 // Handle window resize
@@ -490,70 +525,54 @@ window.addEventListener("resize", function () {
 
 // --- Input Handling ---
 window.addEventListener("keydown", function (event) {
-    // Don't handle keydown if user is typing in an input field etc.
-    // if (event.target !== document.body && event.target !== canvas) return;
-
     if (event.key === " " || event.code === "Space") {
-        event.preventDefault(); // Prevent scrolling page on space press
-
+        event.preventDefault();
         if (currentGameState === GameState.AIMING) {
-            // Stop aiming, start charging
             currentGameState = GameState.CHARGING;
-            chargeStartTime = performance.now(); // Record start time
+            chargeStartTime = performance.now();
             console.log("Charging power...");
             if(directionArrow) {
-                // Freeze arrow direction at currentAimAngle, start power indicator
-                 updateArrowCharging(directionArrow, 0); // Set to min power visually
+                 updateArrowCharging(directionArrow, 0);
             }
         }
     }
 });
 
 window.addEventListener("keyup", function (event) {
-    // if (event.target !== document.body && event.target !== canvas) return;
-
      if (event.key === " " || event.code === "Space") {
          event.preventDefault();
-
          if (currentGameState === GameState.CHARGING) {
-             // Launch the ball!
              currentGameState = GameState.BALL_ROLLING;
              console.log(`Launching with power: ${launchPower.toFixed(2)} at angle: ${(currentAimAngle * 180 / Math.PI).toFixed(1)} deg`);
 
              if (bowlingBall && bowlingBall.physicsImpostor) {
-                 // Calculate direction based on final aim angle (Use -sin for correct visual match)
                  const launchDirection = new BABYLON.Vector3(
-                     -Math.sin(currentAimAngle), // Inverted X component
+                     -Math.sin(currentAimAngle),
                      0,
                      Math.cos(currentAimAngle)
                  ).normalize();
-
-                 // Make sure ball physics isn't sleeping
                  bowlingBall.physicsImpostor.wakeUp();
-
                  const contactPoint = bowlingBall.getAbsolutePosition();
-
                  bowlingBall.physicsImpostor.applyImpulse(
-                     launchDirection.scale(launchPower), // Scale direction by final power
+                     launchDirection.scale(launchPower),
                      contactPoint
                  );
              }
              if (directionArrow) {
-                 directionArrow.isVisible = false; // Hide arrow after launch
+                 directionArrow.isVisible = false;
              }
          }
      }
 
-    // Reset game on 'R' key press
     if (event.key === "r" || event.key === "R") {
-        // Allow reset from most states, except during another reset
         if(currentGameState !== GameState.RESETTING) {
-             // Clear any pending auto-reset timer if 'R' is pressed
              if (currentScene?.metadata?.resetTimer) {
                  clearTimeout(currentScene.metadata.resetTimer);
-                 currentScene.metadata.resetTimer = null;
+                 if(currentScene.metadata) currentScene.metadata.resetTimer = null;
              }
-             resetGame(currentScene);
+             resetGame(currentScene); // Trigger full game reset
         }
     }
 });
+
+// --- END OF FILE game.js ---
