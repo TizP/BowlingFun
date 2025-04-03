@@ -1,0 +1,14 @@
+html, body {
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    touch-action: none; /* Prevents browser gestures interfering on touch devices */
+}
+
+#renderCanvas {
+    width: 100%;
+    height: 100%;
+    display: block; /* Prevent potential scrollbars */
+}
